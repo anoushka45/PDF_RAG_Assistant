@@ -1,4 +1,5 @@
 import streamlit as st
+from pathlib import Path
 
 from config import *
 from src.loaders.pdf_loader import load_pdfs
@@ -9,11 +10,39 @@ from src.retriever.rag_retriever import RAGRetriever
 from src.llm.groq_llm import GroqLLM
 from src.pipelines.rag_pipeline import run_rag
 
-st.set_page_config(page_title="DocQuery - PDF RAG", layout="wide")
 
-st.title("📄 DocQuery – PDF RAG Assistant")
-st.caption("Ask questions from your PDFs using Retrieval-Augmented Generation")
+# -------------------- Page Config --------------------
+st.set_page_config(
+    page_title="DocQuery - PDF RAG",
+    layout="wide",
+    page_icon="📄"
+)
 
+# -------------------- Header --------------------
+st.title("📄 DocQuery")
+st.caption("Ask intelligent questions from your PDFs using Retrieval-Augmented Generation")
+
+# -------------------- Sidebar --------------------
+st.sidebar.header("📂 Available PDFs")
+
+pdf_files = sorted([p.name for p in Path(PDF_DIR).glob("*.pdf")])
+
+if not pdf_files:
+    st.sidebar.warning("No PDFs found in data/raw_pdfs")
+    st.stop()
+
+selected_pdfs = st.sidebar.multiselect(
+    "Select PDFs to query from:",
+    pdf_files,
+    default=pdf_files
+)
+
+st.sidebar.markdown("---")
+st.sidebar.info(
+    "💡 Tip: Select one or multiple PDFs to limit the search scope."
+)
+
+# -------------------- RAG Setup --------------------
 @st.cache_resource
 def setup_rag():
     docs = load_pdfs(PDF_DIR)
@@ -30,18 +59,42 @@ def setup_rag():
 
     return retriever, llm
 
-with st.spinner("Setting up RAG pipeline..."):
+
+with st.spinner("🔧 Initializing RAG pipeline..."):
     retriever, llm = setup_rag()
 
-query = st.text_input("Ask a question from your documents:")
+# -------------------- Query Input --------------------
+st.markdown("### 💬 Ask a Question")
+query = st.text_input(
+    "Type your question below:",
+    placeholder="e.g. What is attention mechanism?"
+)
 
-if query:
-    with st.spinner("Thinking..."):
+# -------------------- Query Handling --------------------
+if query and selected_pdfs:
+    with st.spinner("🤔 Thinking..."):
         answer, sources = run_rag(query, retriever, llm, TOP_K)
 
-    st.subheader("✅ Answer")
+        # filter sources based on selected PDFs
+        filtered_sources = [
+            s for s in sources if s["metadata"]["source"] in selected_pdfs
+        ]
+
+    st.markdown("### ✅ Answer")
     st.write(answer)
 
-    st.subheader("📚 Sources")
-    for s in sources:
-        st.markdown(f"- **{s['metadata']['source']}** (score: {s['score']:.2f})")
+    st.markdown("### 📚 Sources Used")
+
+    if filtered_sources:
+        for s in filtered_sources:
+            st.markdown(
+                f"""
+                🔹 **{s['metadata']['source']}**  
+                Similarity score: `{s['score']:.2f}`
+                """
+            )
+    else:
+        st.warning("No matching sources found in selected PDFs.")
+
+elif query and not selected_pdfs:
+    st.warning("Please select at least one PDF from the sidebar.")
